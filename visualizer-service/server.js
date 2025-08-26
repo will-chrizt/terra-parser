@@ -21,8 +21,7 @@ return diagram;
 }
 app.post('/visualize', (req, res) => {
 const parsed = req.body.parsed;
-if(!parsed) return res.status(400).json({ok:false, error:'parsed JSON 
-required'});
+if(!parsed) return res.status(400).json({ok:false, error:'parsed JSON required'});
 const mermaidCode = generateMermaid(parsed);
 res.json({ok:true, mermaid: mermaidCode});
 });
