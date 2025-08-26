@@ -21,36 +21,48 @@
   <script>
     mermaid.initialize({ startOnLoad: true });
 
+    // Auto-detect EC2 public IP
+    const EC2_IP = window.location.hostname; // should match the IP used to access frontend
+    const PARSER_URL = `http://${EC2_IP}:8001`;
+    const VISUALIZER_URL = `http://${EC2_IP}:8002`;
+
     let parsedData = null;
 
     document.getElementById('parseBtn').onclick = async () => {
       const tfText = document.getElementById('tfText').value;
-      const resp = await fetch('http://localhost:8001/parse-text', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tf_text: tfText })
-      });
-      const data = await resp.json();
-      if (data.ok) {
-        parsedData = data.summary;
-        alert('Parsing successful! Now visualize.');
-      } else {
-        alert('Parsing failed: ' + data.detail);
+      try {
+        const resp = await fetch(`${PARSER_URL}/parse-text`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tf_text: tfText })
+        });
+        const data = await resp.json();
+        if (data.ok) {
+          parsedData = data.summary;
+          alert('Parsing successful! Now visualize.');
+        } else {
+          alert('Parsing failed: ' + data.detail);
+        }
+      } catch (err) {
+        alert('Error connecting to parser service: ' + err);
       }
     };
 
     function generateMermaidLocal(parsed) {
       let diagram = 'graph TD\n';
+
       // VPCs
       parsed.resources.filter(r => r.type.includes('vpc')).forEach(vpc => {
         diagram += `  ${vpc.type}_${vpc.name}["${vpc.type}: ${vpc.name}"]\n`;
       });
+
       // Subnets
       parsed.resources.filter(r => r.type.includes('subnet')).forEach(subnet => {
         if(subnet.vpc_id)
           diagram += `  ${subnet.vpc_id} --> ${subnet.type}_${subnet.name}\n`;
         diagram += `  ${subnet.type}_${subnet.name}["${subnet.type}: ${subnet.name}"]\n`;
       });
+
       // Other resources
       parsed.resources.forEach(res => {
         if(!res.type.includes('vpc') && !res.type.includes('subnet')) {
@@ -59,31 +71,10 @@
           diagram += `  ${res.type}_${res.name}["${res.type}: ${res.name}"]\n`;
         }
       });
+
       return diagram;
     }
 
     document.getElementById('visualizeLocalBtn').onclick = () => {
       if(!parsedData) return alert('Parse Terraform first!');
-      const code = generateMermaidLocal(parsedData);
-      document.getElementById('diagram').innerHTML = `<div class="mermaid">${code}</div>`;
-      mermaid.contentLoaded();
-    };
-
-    document.getElementById('visualizeLLMBtn').onclick = async () => {
-      if(!parsedData) return alert('Parse Terraform first!');
-      const resp = await fetch('http://localhost:8002/visualize-llm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ parsed: parsedData })
-      });
-      const data = await resp.json();
-      if(data.ok) {
-        document.getElementById('diagram').innerHTML = `<div class="mermaid">${data.mermaid}</div>`;
-        mermaid.contentLoaded();
-      } else {
-        alert('LLM Visualization failed: ' + data.error);
-      }
-    };
-  </script>
-</body>
-</html>
+      const code
