@@ -1,60 +1,89 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
 <head>
-<meta charset="utf-8">
-<title>Terraform Infra Visualizer</title>
-<script type="module" src="https://cdn.jsdelivr.net/npm/mermaid/dist/
-mermaid.min.js"></script>
-<style>
-body { font-family:sans-serif; margin:2rem; }
-textarea { width:100%; height:200px; }
-.diagram { border:1px solid #ddd; padding:1rem; border-radius:8px; margin-top:
-1rem; }
-button { margin-top:0.5rem; padding:0.5rem 1rem; border-radius:4px; }
-</style>
+  <title>Terraform Visualizer</title>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+  <style>
+    #diagram { border: 1px solid #ccc; padding: 10px; margin-top: 10px; }
+    textarea { width: 100%; height: 150px; }
+  </style>
 </head>
 <body>
-<h1>Terraform Infra Visualizer</h1>
-<textarea id="tf"></textarea>
-<div>
-<button id="parseBtn">Parse</button>
-<button id="demoBtn">Load Demo</button>
-<button id="visualizeBtn">Visualize</button>
-</div>
-<pre id="parsed"></pre>
-<div class="diagram" id="diagram"></div>
-<script>
-const parserURL = 'http://localhost:8001';
-const vizURL = 'http://localhost:8002';
-let parsedData = null;
-document.getElementById('demoBtn').onclick = ()=>{
-document.getElementById('tf').value=`provider "aws" { region = "us-east-1" }
-resource "aws_vpc" "main" { cidr_block = "10.0.0.0/16" }
-resource "aws_subnet" "public" { vpc_id = aws_vpc.main.id 
-cidr_block="10.0.1.0/24" }
-`;
-};
-document.getElementById('parseBtn').onclick = async ()=>{
-const tf = document.getElementById('tf').value;
-const res = await fetch(`${parserURL}/parse-file`, { method:'POST', body: new
-Blob([tf], {type:'text/plain'}) });
-const data = await res.json();
-parsedData = data.parsed;
-document.getElementById('parsed').textContent =
-JSON.stringify(parsedData,null,2);
-};
-document.getElementById('visualizeBtn').onclick = async ()=>{
-if(!parsedData){ alert('Parse first'); return; }
-const res = await fetch(`${vizURL}/visualize`, { method:'POST', headers:
-{'Content-Type':'application/json'},
-body:JSON.stringify({parsed:parsedData}) });
-const data = await res.json();
-if(data.ok){
-document.getElementById('diagram').innerHTML=`<div class="mermaid">$
-{data.mermaid}</div>`;
-mermaid.initialize({ startOnLoad:true });
-}
-};
-</script>
+  <h2>Terraform Visualizer</h2>
+
+  <textarea id="tfText" placeholder="Paste Terraform HCL here"></textarea><br/>
+  <button id="parseBtn">Parse</button>
+  <button id="visualizeLocalBtn">Visualize Locally</button>
+  <button id="visualizeLLMBtn">Visualize via LLM (Bedrock)</button>
+
+  <div id="diagram"></div>
+
+  <script>
+    mermaid.initialize({ startOnLoad: true });
+
+    let parsedData = null;
+
+    document.getElementById('parseBtn').onclick = async () => {
+      const tfText = document.getElementById('tfText').value;
+      const resp = await fetch('http://localhost:8001/parse-text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tf_text: tfText })
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        parsedData = data.summary;
+        alert('Parsing successful! Now visualize.');
+      } else {
+        alert('Parsing failed: ' + data.detail);
+      }
+    };
+
+    function generateMermaidLocal(parsed) {
+      let diagram = 'graph TD\n';
+      // VPCs
+      parsed.resources.filter(r => r.type.includes('vpc')).forEach(vpc => {
+        diagram += `  ${vpc.type}_${vpc.name}["${vpc.type}: ${vpc.name}"]\n`;
+      });
+      // Subnets
+      parsed.resources.filter(r => r.type.includes('subnet')).forEach(subnet => {
+        if(subnet.vpc_id)
+          diagram += `  ${subnet.vpc_id} --> ${subnet.type}_${subnet.name}\n`;
+        diagram += `  ${subnet.type}_${subnet.name}["${subnet.type}: ${subnet.name}"]\n`;
+      });
+      // Other resources
+      parsed.resources.forEach(res => {
+        if(!res.type.includes('vpc') && !res.type.includes('subnet')) {
+          const parent = res.subnet_id || res.vpc_id;
+          if(parent) diagram += `  ${parent} --> ${res.type}_${res.name}\n`;
+          diagram += `  ${res.type}_${res.name}["${res.type}: ${res.name}"]\n`;
+        }
+      });
+      return diagram;
+    }
+
+    document.getElementById('visualizeLocalBtn').onclick = () => {
+      if(!parsedData) return alert('Parse Terraform first!');
+      const code = generateMermaidLocal(parsedData);
+      document.getElementById('diagram').innerHTML = `<div class="mermaid">${code}</div>`;
+      mermaid.contentLoaded();
+    };
+
+    document.getElementById('visualizeLLMBtn').onclick = async () => {
+      if(!parsedData) return alert('Parse Terraform first!');
+      const resp = await fetch('http://localhost:8002/visualize-llm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parsed: parsedData })
+      });
+      const data = await resp.json();
+      if(data.ok) {
+        document.getElementById('diagram').innerHTML = `<div class="mermaid">${data.mermaid}</div>`;
+        mermaid.contentLoaded();
+      } else {
+        alert('LLM Visualization failed: ' + data.error);
+      }
+    };
+  </script>
 </body>
 </html>
