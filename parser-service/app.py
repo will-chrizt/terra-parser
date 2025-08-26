@@ -15,14 +15,13 @@ app.add_middleware(
 
 
 def parse_hcl_text(text: str) -> Dict[str, Any]:
-    """Parse HCL text into Python dictionary."""
+    """Parse Terraform HCL text into a Python dictionary."""
     import io
-    data = hcl2.load(io.StringIO(text))
-    return data
+    return hcl2.load(io.StringIO(text))
 
 
 def summarize_parsed(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Create a lightweight, structured summary suitable for visualization."""
+    """Return a structured summary of Terraform resources for visualization."""
     providers = []
     if "provider" in data:
         for p in data["provider"]:
@@ -41,14 +40,59 @@ def summarize_parsed(data: Dict[str, Any]) -> Dict[str, Any]:
             })
 
     resources = []
-for res in data.get("resource", []):
-    for rtype, entries in res.items():
-        for name, cfg in entries.items():
-            item = {"type": rtype, "name": name}
-            if isinstance(cfg, dict):
-                for k in ["cidr_block", "vpc_id", "subnet_id", "engine",
-                          "instance_class", "allocated_storage", "port",
-                          "ingress", "egress", "ami", "instance_type"]:
-                    if k in cfg:
-                        item[k] = cfg[k]
-            resources.append(item)
+    for res in data.get("resource", []):
+        for rtype, entries in res.items():
+            for name, cfg in entries.items():
+                item = {"type": rtype, "name": name}
+                if isinstance(cfg, dict):
+                    for k in ["cidr_block", "vpc_id", "subnet_id", "engine",
+                              "instance_class", "allocated_storage", "port",
+                              "ingress", "egress", "ami", "instance_type"]:
+                        if k in cfg:
+                            item[k] = cfg[k]
+                resources.append(item)
+
+    modules = []
+    for mod in data.get("module", []):
+        for name, cfg in mod.items():
+            source = cfg.get("source") if isinstance(cfg, dict) else None
+            modules.append({"name": name, "source": source})
+
+    outputs = []
+    for out in data.get("output", []):
+        for name, cfg in out.items():
+            outputs.append({"name": name})
+
+    return {
+        "providers": providers,
+        "variables": variables,
+        "resources": resources,
+        "modules": modules,
+        "outputs": outputs,
+    }
+
+
+@app.post("/parse-file")
+async def parse_file(file: UploadFile = File(...)) -> Dict[str, Any]:
+    """Parse a Terraform file and return raw + summarized JSON."""
+    try:
+        content = (await file.read()).decode()
+        data = parse_hcl_text(content)
+        return {"ok": True, "summary": summarize_parsed(data), "raw": data}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Parse error: {e}")
+
+
+@app.post("/parse-text")
+async def parse_text(tf_text: str) -> Dict[str, Any]:
+    """Parse Terraform text input (from frontend textarea)."""
+    try:
+        data = parse_hcl_text(tf_text)
+        return {"ok": True, "summary": summarize_parsed(data), "raw": data}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Parse error: {e}")
+
+
+@app.get("/")
+async def root():
+    return {"service": "parser", "status": "ok"}
