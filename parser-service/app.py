@@ -41,12 +41,14 @@ def summarize_parsed(data: Dict[str, Any]) -> Dict[str, Any]:
             })
 
     resources = []
-    for res in data.get("resource", []):
-        for rtype, entries in res.items():
-            for name, cfg in entries.items():
-                item = {"type": rtype, "name": name}
-                if isinstance(cfg, dict):
-                    for k in ["cidr_block", "vpc_id", "subnet_id", "engine",
-                              "instance_class", "allocated_storage", "port",
-                              "ingress", "egress", "ami", "instance_type"]:
-                        if k in cfg:
+for res in data.get("resource", []):
+    for rtype, entries in res.items():
+        for name, cfg in entries.items():
+            item = {"type": rtype, "name": name}
+            if isinstance(cfg, dict):
+                for k in ["cidr_block", "vpc_id", "subnet_id", "engine",
+                          "instance_class", "allocated_storage", "port",
+                          "ingress", "egress", "ami", "instance_type"]:
+                    if k in cfg:
+                        item[k] = cfg[k]
+            resources.append(item)
